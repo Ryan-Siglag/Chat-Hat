@@ -5,11 +5,12 @@ import queue
 import threading
 import time
 import pyttsx3
+import cv2
 import os
 from openai import OpenAI
 from dotenv import load_dotenv
 
-from detection_utils import grab_frame, vision
+from detection_utils import grab_frame, detect
 
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
@@ -114,19 +115,23 @@ def transcribe_audio():
                 threading.Thread(target=query_gpt, args=(text,), daemon=True).start()
 
 def query_gpt(text):
-    things_in_view = detect()
+    detected_objs = run_detection()
+    print("Sight: " + str(detected_objs))
     
-    sight = ""
-    if len(things_in_view) > 0:
-        sight = "You see "
-        for thing in things_in_view:
-            sight += "a " + thing + " "
+    sight = "You cannot see right now. "
+    if len(detected_objs) > 0:
+        sight = "If you are asked what you see, you see "
+        for obj in detected_objs:
+            sight += "a " + obj + " "
         sight += ". " 
 
+
+    final_prompt = PROMPT + sight + text
+    print(final_prompt)
     response = client.responses.create(
         # model="gpt-5-nano-2025-08-07",
         model="gpt-3.5-turbo", #FAST!
-        input= PROMPT + sight + text
+        input= final_prompt
     )
     print(response.output_text)
     tts_q.put(response.output_text)
@@ -155,17 +160,18 @@ def tts_worker():
         engine.iterate()
         time.sleep(0.05)
 
-def detect():
+def run_detection():
     print("Grabbing frame...")
     frame = grab_frame()
 
     if frame is None:
         print("Failed to grab frame")
+        return []
 
-    print("Running detection...")
-    annotated = vision(frame)
-    # print(annotated)
-    return annotated
+    annotated, labels = detect(frame)
+    print("Detected:", labels)
+
+    return labels
 
 # --- Start threads ---
 process_thread = threading.Thread(target=process_audio, daemon=True)

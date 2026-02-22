@@ -7,16 +7,22 @@ import time
 import pyttsx3
 import cv2
 import os
+import serial
+import time
 from openai import OpenAI
 from dotenv import load_dotenv
 
 from detection_utils import grab_frame, detect
+from esp_32_utils import servo_connect, servo_set_angle, servo_close
 
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=api_key)
 
-PROMPT = "Ignore any odd words, especially chat and or hat. Answer quickly with a reponse no more than 20 words. "
+servo_connect(port="COM4")
+servo_set_angle(20)
+
+PROMPT = "You are Chat Hat, an AI assistant in a hat. Answer quickly with a reponse no more than 20 words."
 
 # --- Settings ---
 DEVICE_NAME = "USB"
@@ -36,6 +42,13 @@ tts_q = queue.Queue()
 
 # --- Triggers ---
 chat_triggers = ['chat', 'chet', ' hat ', ' hat.', ' hat,', ' het', ' het.', '-hat']
+glasses_triggers = ['glasses', 'classes', 'up']
+
+# --- Glasses Settings ---
+glasses = False
+
+GLASSES_UP = 0
+GLASSES_DOWN = 90
 
 # --- Load Whisper model ---
 print("Loading Whisper model...")
@@ -109,29 +122,50 @@ def transcribe_audio():
         text = result['text'].strip()
         if text:
             print(f"[{time.strftime('%H:%M:%S')}] {text}")
+
             if any(trigger in text.lower() for trigger in chat_triggers):
-                print("GPT")
-                # Run GPT in its own thread so transcription keeps moving
-                threading.Thread(target=query_gpt, args=(text,), daemon=True).start()
+                if any(trigger in text.lower() for trigger in glasses_triggers):
+                    threading.Thread(target=toggle_glasses, daemon=True).start()
+                else:
+                    print("Querying GPT")
+                    threading.Thread(target=query_gpt, args=(text,), daemon=True).start()
+
+def toggle_glasses():
+    global glasses
+
+    # Connect once at the start
+
+    # Use anywhere in your code
+    servo_set_angle(0)
+    time.sleep(1)
+    servo_set_angle(90)
+    time.sleep(1)
+
+    # Close when done
+    servo_close()
+
+    if glasses:
+        success = servo_set_angle(GLASSES_DOWN)
+    else:
+        success = servo_set_angle(GLASSES_UP)
+    glasses = not glasses
 
 def query_gpt(text):
     detected_objs = run_detection()
     print("Sight: " + str(detected_objs))
-    
+
     sight = "You cannot see right now. "
     if len(detected_objs) > 0:
         sight = "If you are asked what you see, you see "
         for obj in detected_objs:
             sight += "a " + obj + " "
-        sight += ". " 
-
+        sight += ". "
 
     final_prompt = PROMPT + sight + text
     print(final_prompt)
     response = client.responses.create(
-        # model="gpt-5-nano-2025-08-07",
-        model="gpt-3.5-turbo", #FAST!
-        input= final_prompt
+        model="gpt-3.5-turbo",
+        input=final_prompt
     )
     print(response.output_text)
     tts_q.put(response.output_text)
@@ -142,17 +176,10 @@ def tts_worker():
     engine.setProperty('voice', voices[0].id)
     engine.setProperty('rate', 200)
 
-    def process_queue(name, completed):
-        if not tts_q.empty():
-            text = tts_q.get()
-            engine.say(text)
-        else:
-            time.sleep(0.1)
-
     engine.connect('started-utterance', lambda name: print("Speaking..."))
     engine.connect('finished-utterance', lambda name, completed: print("Done"))
 
-    engine.startLoop(False)  # False = we drive the loop manually
+    engine.startLoop(False)
     while True:
         if not tts_q.empty():
             text = tts_q.get()
@@ -198,3 +225,5 @@ with stream:
             time.sleep(1)
     except KeyboardInterrupt:
         print("Stopping...")
+    finally:
+        servo_close()  # Guaranteed even on crash

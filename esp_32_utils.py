@@ -1,38 +1,52 @@
 import serial
 import time
 
-class ESP32Servo:
-    def __init__(self, port: str, baudrate: int = 115200, timeout: float = 1.0):
-        self.ser = serial.Serial(port, baudrate, timeout=timeout)
-        time.sleep(2)  # Allow ESP32 to reset
+_state = {"ser": None}
 
-    def _send_command(self, command: str) -> str:
-        full_cmd = command.strip() + "\n"
-        self.ser.write(full_cmd.encode())
+def servo_connect(port: str, baudrate: int = 2000000, timeout: float = 1.0):
+    try:
+        _state["ser"] = serial.Serial(port, baudrate, timeout=timeout)
+        time.sleep(2)
+        print(f"[ESP32Servo] Connected on {port}")
+    except (serial.SerialException, OSError) as e:
+        print(f"[ESP32Servo] Warning: Could not open {port}: {e}. Servo disabled.")
+        _state["ser"] = None
 
-        response = self.ser.readline().decode().strip()
-        return response
+def _send_command(command: str) -> str:
+    if _state["ser"] is None:
+        return "DISABLED"
+    full_cmd = command.strip() + "\n"
+    _state["ser"].reset_input_buffer()
+    _state["ser"].write(full_cmd.encode())
+    deadline = time.time() + 1.0
+    while time.time() < deadline:
+        try:
+            line = _state["ser"].readline().decode("utf-8").strip()
+            if line in ("OK", "ERR"):
+                return line
+        except UnicodeDecodeError:
+            _state["ser"].reset_input_buffer()
+            continue
+    return "TIMEOUT"
 
-    def set_angle(self, angle: int) -> bool:
-        if not 0 <= angle <= 180:
-            raise ValueError("Angle must be between 0 and 180")
+def servo_set_angle(angle: int) -> bool:
+    if not 0 <= angle <= 180:
+        raise ValueError("Angle must be between 0 and 180")
+    if _state["ser"] is None:
+        print(f"[ESP32Servo] Servo disabled — skipping set_angle({angle})")
+        return False
+    return _send_command(f"ANGLE {angle}") == "OK"
 
-        response = self._send_command(f"ANGLE {angle}")
-        return response == "OK"
-
-    def close(self):
-        if self.ser.is_open:
-            self.ser.close()
+def servo_close():
+    if _state["ser"] is not None and _state["ser"].is_open:
+        _state["ser"].close()
+        _state["ser"] = None
 
 
-# Example usage
 if __name__ == "__main__":
-    servo = ESP32Servo(port="COM4")  # Change to your port
-
-    for angle in [0, 45, 90, 135, 180]:
+    servo_connect(port="COM4")
+    for angle in [0, 90, 0, 90]:
         print(f"Setting angle: {angle}")
-        success = servo.set_angle(angle)
-        print("Response:", success)
+        print("Success:", servo_set_angle(angle))
         time.sleep(1)
-
-    servo.close()
+    servo_close()

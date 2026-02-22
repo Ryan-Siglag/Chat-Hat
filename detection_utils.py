@@ -53,7 +53,7 @@ def grab_frame():
     return frame
 
 # ---------------- YOLO SETUP ----------------
-model = YOLO("yolov8n.pt")  # lightweight nano model
+model = YOLO("yolov8m.pt")  # lightweight nano model
 
 
 # ---------------- DETECTION FUNCTION ----------------

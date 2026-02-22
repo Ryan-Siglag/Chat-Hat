@@ -114,7 +114,7 @@ def transcribe_audio():
 def query_gpt(text):
     response = client.responses.create(
         # model="gpt-5-nano-2025-08-07",
-        model="gpt-3.5-turbo",
+        model="gpt-3.5-turbo", #FAST!
         input=PROMPT + text
     )
     print(response.output_text)

@@ -9,6 +9,8 @@ import os
 from openai import OpenAI
 from dotenv import load_dotenv
 
+from detection_utils import grab_frame, vision
+
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=api_key)
@@ -112,10 +114,19 @@ def transcribe_audio():
                 threading.Thread(target=query_gpt, args=(text,), daemon=True).start()
 
 def query_gpt(text):
+    things_in_view = detect()
+    
+    sight = ""
+    if len(things_in_view) > 0:
+        sight = "You see "
+        for thing in things_in_view:
+            sight += "a " + thing + " "
+        sight += ". " 
+
     response = client.responses.create(
         # model="gpt-5-nano-2025-08-07",
         model="gpt-3.5-turbo", #FAST!
-        input=PROMPT + text
+        input= PROMPT + sight + text
     )
     print(response.output_text)
     tts_q.put(response.output_text)
@@ -143,6 +154,18 @@ def tts_worker():
             engine.say(text)
         engine.iterate()
         time.sleep(0.05)
+
+def detect():
+    print("Grabbing frame...")
+    frame = grab_frame()
+
+    if frame is None:
+        print("Failed to grab frame")
+
+    print("Running detection...")
+    annotated = vision(frame)
+    # print(annotated)
+    return annotated
 
 # --- Start threads ---
 process_thread = threading.Thread(target=process_audio, daemon=True)

@@ -113,7 +113,8 @@ def transcribe_audio():
 
 def query_gpt(text):
     response = client.responses.create(
-        model="gpt-5-nano-2025-08-07",
+        # model="gpt-5-nano-2025-08-07",
+        model="gpt-3.5-turbo",
         input=PROMPT + text
     )
     print(response.output_text)
@@ -122,8 +123,8 @@ def query_gpt(text):
 def tts_worker():
     engine = pyttsx3.init()
     voices = engine.getProperty('voices')
-    engine.setProperty('voice', voices[1].id)
-    engine.setProperty('rate', 250)
+    engine.setProperty('voice', voices[0].id)
+    engine.setProperty('rate', 200)
 
     def process_queue(name, completed):
         if not tts_q.empty():

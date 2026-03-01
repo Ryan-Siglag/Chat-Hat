@@ -23,37 +23,65 @@ def read_exact(n):
 
 # ---------------- FRAME GRAB ----------------
 def grab_frame():
-    # Drain old data
-    while ser.in_waiting:
-        ser.read(ser.in_waiting)
+    MAX_SEARCH = 100_000  # bytes to search before giving up
+    searched = 0
 
-    # Now wait for fresh frame
-    while True:
-        b1 = ser.read(1)
-        if not b1:
+    # Search for 0xFF 0xAA header byte-by-byte
+    while searched < MAX_SEARCH:
+        b = ser.read(1)
+        if not b:
+            print("Timeout waiting for header")
             return None
-        if b1 == b'\xFF' and ser.read(1) == b'\xAA':
-            break
+        searched += 1
 
+        if b == b'\xFF':
+            b2 = ser.read(1)
+            if b2 == b'\xAA':
+                break  # Found valid header
+            # If not 0xAA, keep searching (b2 might be 0xFF, so don't discard it)
+            if b2 == b'\xFF':
+                # peek one more
+                ser.read(0)  # no-op, just continue loop logic
+                searched -= 1  # reprocess this as potential header start
+    else:
+        print("Could not find frame header")
+        return None
+
+    # Read length
     length_bytes = read_exact(4)
-    if not length_bytes:
+    if not length_bytes or len(length_bytes) < 4:
+        print("Failed to read length")
         return None
 
     length = struct.unpack("<I", length_bytes)[0]
 
-    image_data = read_exact(length)
-    if not image_data:
+    # Sanity check on length
+    if length < 100 or length > 100_000:
+        print(f"Suspicious frame length: {length}, skipping")
         return None
 
-    ser.read(2)
+    image_data = read_exact(length)
+    if not image_data:
+        print("Failed to read image data")
+        return None
+
+    # Read and verify footer
+    footer = ser.read(2)
+    if footer != b'\xBB\xCC':  # adjust to whatever your ESP sends
+        print(f"Bad footer: {footer.hex()}")
+        # Don't return None here — JPEG might still decode fine
 
     npimg = np.frombuffer(image_data, dtype=np.uint8)
     frame = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
 
+    if frame is None:
+        print("cv2.imdecode failed — corrupt JPEG data")
+        return None
+
     return frame
 
 # ---------------- YOLO SETUP ----------------
-model = YOLO("yolov8m.pt")  # lightweight nano model
+model = YOLO("yolov8m.pt")  # minweight nano model
 
 
 # ---------------- DETECTION FUNCTION ----------------

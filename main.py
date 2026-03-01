@@ -1,5 +1,7 @@
 # --- Settings ---
-HAT_ATTATCHED = True
+HAT_ATTATCHED = False
+G_CAL = True
+
 DEVICE_NAME = "USB"
 SAMPLERATE = 16000
 CHANNELS = 1
@@ -25,11 +27,15 @@ if HAT_ATTATCHED:
     servo_connect(port="COM4")
     servo_set_angle(20)
 
+if G_CAL:
+    from g_cal import get_upcoming_events
+
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=api_key)    
 
-PROMPT = "You are Chat Hat, an AI assistant in a hat. Answer quickly with a reponse no more than 20 words."
+PROMPT = "You are Chat Hat, an AI assistant in a hat. Answer the user quickly with a reponse no more than 20 words."
+PROMPT_END = "User input: "
 
 # --- VAD Settings ---
 SILENCE_THRESHOLD = 0.01
@@ -44,7 +50,7 @@ tts_q = queue.Queue()
 
 # --- Triggers ---
 chat_triggers = ['chat', 'chet', ' hat ', ' hat.', ' hat,', ' het', ' het.', '-hat']
-glasses_triggers = ['glasses', 'classes', 'up']
+glasses_triggers = ['glasses', 'classes']
 
 # --- Glasses Settings ---
 GLASSES_UP = 0
@@ -126,6 +132,7 @@ def transcribe_audio():
         if text:
             print(f"[{time.strftime('%H:%M:%S')}] {text}")
 
+            print(any(trigger in text.lower() for trigger in chat_triggers))
             if any(trigger in text.lower() for trigger in chat_triggers):
                 if any(trigger in text.lower() for trigger in glasses_triggers):
                     threading.Thread(target=toggle_glasses, daemon=True).start()
@@ -134,24 +141,25 @@ def transcribe_audio():
                     threading.Thread(target=query_gpt, args=(text,), daemon=True).start()
 
 def toggle_glasses():
-    global glasses
+    if HAT_ATTATCHED:
+        global glasses
 
-    # Connect once at the start
+        # Connect once at the start
 
-    # Use anywhere in your code
-    servo_set_angle(0)
-    time.sleep(1)
-    servo_set_angle(90)
-    time.sleep(1)
+        # Use anywhere in your code
+        servo_set_angle(0)
+        time.sleep(1)
+        servo_set_angle(90)
+        time.sleep(1)
 
-    # Close when done
-    servo_close()
+        # Close when done
+        servo_close()
 
-    if glasses:
-        success = servo_set_angle(GLASSES_DOWN)
-    else:
-        success = servo_set_angle(GLASSES_UP)
-    glasses = not glasses
+        if glasses:
+            success = servo_set_angle(GLASSES_DOWN)
+        else:
+            success = servo_set_angle(GLASSES_UP)
+        glasses = not glasses
 
 def query_gpt(text):
 
@@ -161,14 +169,24 @@ def query_gpt(text):
 
     print("Sight: " + str(detected_objs))
 
-    sight = "You cannot see right now. "
+    sight = "If you are asked if you can see, you cannot. "
     if len(detected_objs) > 0:
         sight = "If you are asked what you see, you see "
         for obj in detected_objs:
             sight += "a " + obj + " "
         sight += ". "
 
-    final_prompt = PROMPT + sight + text
+    upcoming_events = []
+    if G_CAL:
+        upcoming_events = get_upcoming_events(3)
+
+    calender = "If you are asked about upcoming events, you do not have access"
+    if len(upcoming_events) > 0:
+        calender = "If you are asked about upcoming events, the user has "
+        for event in upcoming_events:
+            calender += event + ", "
+
+    final_prompt = PROMPT + sight + calender + PROMPT_END + text
     print("Prompt: " + final_prompt)
     response = client.responses.create(
         model="gpt-3.5-turbo",

@@ -1,3 +1,9 @@
+# --- Settings ---
+DEVICE_NAME = "USB"
+SAMPLERATE = 16000
+CHANNELS = 1
+HAT_ATTATCHED = False
+
 import sounddevice as sd
 import numpy as np
 import whisper
@@ -12,22 +18,18 @@ import time
 from openai import OpenAI
 from dotenv import load_dotenv
 
-from detection_utils import grab_frame, detect
-from esp_32_utils import servo_connect, servo_set_angle, servo_close
+if HAT_ATTATCHED:
+    from detection_utils import grab_frame, detect
+    from esp_32_utils import servo_connect, servo_set_angle, servo_close
+
+    servo_connect(port="COM4")
+    servo_set_angle(20)
 
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=api_key)
-
-servo_connect(port="COM4")
-servo_set_angle(20)
+client = OpenAI(api_key=api_key)    
 
 PROMPT = "You are Chat Hat, an AI assistant in a hat. Answer quickly with a reponse no more than 20 words."
-
-# --- Settings ---
-DEVICE_NAME = "USB"
-SAMPLERATE = 16000
-CHANNELS = 1
 
 # --- VAD Settings ---
 SILENCE_THRESHOLD = 0.01
@@ -45,10 +47,10 @@ chat_triggers = ['chat', 'chet', ' hat ', ' hat.', ' hat,', ' het', ' het.', '-h
 glasses_triggers = ['glasses', 'classes', 'up']
 
 # --- Glasses Settings ---
-glasses = False
-
 GLASSES_UP = 0
 GLASSES_DOWN = 90
+
+glasses = False
 
 # --- Load Whisper model ---
 print("Loading Whisper model...")
@@ -56,14 +58,15 @@ model = whisper.load_model("tiny.en")
 
 # --- Find the right input device ---
 device_info = None
+device_index = None
 for i, dev in enumerate(sd.query_devices()):
     if DEVICE_NAME.lower() in dev['name'].lower() and dev['max_input_channels'] > 0:
         device_info = dev
         device_index = i
         print(f"Using input device: {dev['name']}")
         break
-if device_info is None:
-    raise RuntimeError(f"Could not find audio input device containing '{DEVICE_NAME}'")
+# if device_info is None:
+#     raise RuntimeError(f"Could not find audio input device containing '{DEVICE_NAME}'")
 
 def is_speech(frame: np.ndarray, threshold: float) -> bool:
     rms = np.sqrt(np.mean(frame ** 2))
@@ -151,7 +154,11 @@ def toggle_glasses():
     glasses = not glasses
 
 def query_gpt(text):
-    detected_objs = run_detection()
+
+    detected_objs = []
+    if HAT_ATTATCHED:
+        detected_objs = run_detection()
+
     print("Sight: " + str(detected_objs))
 
     sight = "You cannot see right now. "
@@ -162,7 +169,7 @@ def query_gpt(text):
         sight += ". "
 
     final_prompt = PROMPT + sight + text
-    print(final_prompt)
+    print("Prompt: " + final_prompt)
     response = client.responses.create(
         model="gpt-3.5-turbo",
         input=final_prompt
@@ -211,12 +218,20 @@ tts_thread = threading.Thread(target=tts_worker, daemon=True)
 tts_thread.start()
 
 # --- Start audio stream ---
-stream = sd.InputStream(
-    samplerate=SAMPLERATE,
-    device=device_index,
-    channels=CHANNELS,
-    callback=audio_callback
-)
+
+if HAT_ATTATCHED:
+    stream = sd.InputStream(
+        samplerate=SAMPLERATE,
+        channels=CHANNELS,
+        callback=audio_callback
+    )
+else:
+        stream = sd.InputStream(
+        samplerate=SAMPLERATE,
+        channels=CHANNELS,
+        callback=audio_callback,
+        device=device_index,
+    )
 
 with stream:
     print("Recording... Press Ctrl+C to stop.")
@@ -226,4 +241,5 @@ with stream:
     except KeyboardInterrupt:
         print("Stopping...")
     finally:
-        servo_close()  # Guaranteed even on crash
+        if HAT_ATTATCHED:
+            servo_close()  # Guaranteed even on crash

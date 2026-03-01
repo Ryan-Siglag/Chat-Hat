@@ -52,7 +52,7 @@ def get_upcoming_events(n=3):
             else:
                 start_fmt = start
 
-            entry = f"{summary} — {start_fmt}"
+            entry = f"{summary} on {start_fmt}"
             if location:
                 entry += f" @ {location}"
 

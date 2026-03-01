@@ -1,8 +1,8 @@
 # --- Settings ---
+HAT_ATTATCHED = True
 DEVICE_NAME = "USB"
 SAMPLERATE = 16000
 CHANNELS = 1
-HAT_ATTATCHED = False
 
 import sounddevice as sd
 import numpy as np
